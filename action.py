@@ -1,8 +1,9 @@
 import re
 
+# action.py
 class Action:
-    def __init__(self):
-        pass
+    def __init__(self, connection_manager):
+        self.connection_manager = connection_manager
 
     def parse_output(self, output):
         devices = []

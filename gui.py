@@ -5,6 +5,7 @@ from action import Action
 from firmware import Firmware
 from connection_manager import ConnectionManager
 from bfb import BFB
+from ofed import OFED
 
 
 class GUI:
@@ -16,6 +17,10 @@ class GUI:
         self.firmware = Firmware(self.connection_manager)
         self.bfb = BFB(self.connection_manager)
         self.setup_ui()
+        self.ofed = OFED(self.connection_manager)
+        self.username = ''
+        self.password = ''
+        self.server_name = ''
 
     def setup_ui(self):
         self.root.title("Card Configurator")
@@ -47,27 +52,27 @@ class GUI:
         self.server_entry.bind("<Return>", lambda event: self.submit_button.invoke())
 
     def request_machine_ip(self):
-        server_name = self.server_entry.get()
-        if server_name:
-            if self.connection_manager.is_valid_hostname_or_ip(server_name):
+        self.server_name = self.server_entry.get()
+        if self.server_name:
+            if self.connection_manager.is_valid_hostname_or_ip(self.server_name):
                 self.message_label.pack_forget()
                 self.server_entry.pack_forget()
                 self.submit_button.pack_forget()
 
-                username = simpledialog.askstring("Input", "Please enter your username:")
-                if username:
-                    password = simpledialog.askstring("Input", "Please enter your password:", show='*')
-                    if password:
-                        ssh = self.connection_manager.ssh_connect(server_name, username, password)
+                self.username = simpledialog.askstring("Input", "Please enter your username:")
+                if self.username:
+                    self.password = simpledialog.askstring("Input", "Please enter your password:", show='*')
+                    if self.password:
+                        ssh = self.connection_manager.ssh_connect(self.server_name, self.username, self.password)
                         if ssh:
-                            self.show_message(f"Connected successfully to {server_name}")
+                            self.show_message(f"Connected successfully to {self.server_name}")
                             output = self.connection_manager.install_and_run_lhca(ssh)
                             if output is not None:
                                 self.display_output(output)
                                 self.create_device_buttons(output)
                             ssh.close()
                         else:
-                            self.show_message(f"Failed to connect to {server_name}")
+                            self.show_message(f"Failed to connect to {self.server_name}")
                         self.show_main_window()
                     else:
                         self.show_message("No password entered.")
@@ -116,7 +121,7 @@ class GUI:
         install_fw_button = tk.Button(self.root, text="Install FW", command=self.install_fw)
         install_fw_button.pack(pady=5)
 
-        install_ofed_button = tk.Button(self.root, text="Install OFED", command=self.install_ofed)
+        install_ofed_button = tk.Button(self.root, text="Install OFED", command=self.show_ofed_installation_window)
         install_ofed_button.pack(pady=5)
 
         install_bfb_button = tk.Button(self.root, text="Install BFB", command=self.install_bfb)
@@ -125,14 +130,89 @@ class GUI:
         install_driver_button = tk.Button(self.root, text="Install DOCA", command=self.install_driver)
         install_driver_button.pack(pady=5)
 
+    # def show_ofed_installation_window(self):
+    #     ofed_install_window = tk.Toplevel(self.root)
+    #     ofed_install_window.title("Install OFED")
+    #
+    #     label = tk.Label(ofed_install_window, text="Enter specific version:")
+    #     label.pack(pady=10)
+    #
+    #     version_entry = tk.Entry(ofed_install_window, width=50)
+    #     version_entry.pack(pady=5)
+    #     version_entry.insert(tk.END, "24.01-0.2.9.0")
+    #
+    #     apply_button = tk.Button(ofed_install_window, text="Apply",
+    #                              command=lambda: self.apply_ofed_installation(version_entry.get(), ofed_install_window))
+    #     apply_button.pack(pady=10)
+
+    def show_ofed_installation_window(self):
+        ofed_install_window = tk.Toplevel(self.root)
+        ofed_install_window.title("OFED Installation")
+
+        window_width = 500
+        window_height = 300
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        position_top = int(screen_height / 2 - window_height / 2)
+        position_right = int(screen_width / 2 - window_width / 2)
+        ofed_install_window.geometry(f'{window_width}x{window_height}+{position_right}+{position_top}')
+
+        label = tk.Label(ofed_install_window, text="Enter specific version:")
+        label.pack(pady=10)
+
+        version_entry = tk.Entry(ofed_install_window, width=50)
+        version_entry.pack(pady=10)
+
+        version_entry.insert(tk.END, "24.01-0.2.9.0")
+
+        apply_button = tk.Button(ofed_install_window, text="Apply",
+                                 command=lambda: self.apply_version_ofed(version_entry.get(), ofed_install_window))
+        apply_button.pack(pady=10)
+
+        or_label = tk.Label(ofed_install_window, text="OR")
+        or_label.pack(pady=5)
+
+        auto_update_button = tk.Button(ofed_install_window, text="Automatic update to latest",
+                                       command=lambda: self.update_ofed(ofed_install_window))
+        auto_update_button.pack(pady=10)
+
+    def apply_version_ofed(self, version, parent_window):
+        self.show_message(f"Applying OFED version {version}")
+
+        ssh = self.connection_manager.ssh_connect(self.server_name, self.username, self.password)
+        if not ssh:
+            self.show_message(f"Failed to connect to {self.server_name}")
+            return
+
+        self.show_progress_window()
+        threading.Thread(target=self.install_ofed, args=(version, ssh, parent_window)).start()
+
+    def update_ofed(self, parent_window):
+        self.show_message("Updating OFED to latest version")
+
+        ssh = self.connection_manager.ssh_connect(self.server_name, self.username, self.password)
+        if not ssh:
+            self.show_message(f"Failed to connect to {self.server_name}")
+            return
+
+        self.show_progress_window()
+        threading.Thread(target=self.install_ofed_latest, args=(ssh, parent_window)).start()
+
+    def install_ofed_latest(self, ssh, parent_window):
+        output = self.ofed.install_latest(ssh)
+        self.show_message(output, text_flag=True)
+        self.progress_window.destroy()
+        parent_window.destroy()
+        ssh.close()
+
+
+    def apply_ofed_installation(self, version, ofed_install_window):
+        ofed_install_window.destroy()
+        self.show_message(f"Installing OFED version: {version}")
+        # Add your logic to install OFED here
+
     def install_fw(self):
         self.show_device_dropdown("Install FW")
-
-    def install_ofed(self):
-        self.show_device_dropdown("Install OFED")
-
-    def install_bfb(self):
-        self.show_device_dropdown("Install BFB")
 
     def install_driver(self):
         self.show_device_dropdown("Install DOCA")
@@ -166,32 +246,32 @@ class GUI:
         select_button.pack(pady=10)
 
     def show_installation_form(self, parent_window, device_name, action):
-        for widget in parent_window.winfo_children():
-            widget.destroy()
+        if parent_window:
+            for widget in parent_window.winfo_children():
+                widget.destroy()
 
-        label = tk.Label(parent_window, text=f"{action} for {device_name}")
+        label = tk.Label(parent_window or self.root, text=f"{action} for {device_name}")
         label.pack(pady=10)
 
-        version_label = tk.Label(parent_window, text="Enter specific version:")
+        version_label = tk.Label(parent_window or self.root, text="Enter specific version:")
         version_label.pack(pady=5)
-        version_entry = tk.Entry(parent_window, width=50)
+        version_entry = tk.Entry(parent_window or self.root, width=50)
         version_entry.pack(pady=5)
 
         if action == "Install FW":
             version_entry.insert(tk.END, "12.22.1994")
-        elif action == "Install OFED":
-            version_entry.insert(tk.END, "MLNX_OFED_LINUX-24.01-0.2.9.0")
-        elif action == "Install BFB":
+        elif action == "Install DOCA":
             version_entry.insert(tk.END, "DOCA_2.5.2_BSP_4.5.2_Ubuntu_22.04-9.24-06-LTS.dev")
 
-        apply_button = tk.Button(parent_window, text="Apply",
-                                 command=lambda: self.apply_version(device_name, version_entry.get(), action, parent_window))
+        apply_button = tk.Button(parent_window or self.root, text="Apply",
+                                 command=lambda: self.apply_version(device_name, version_entry.get(), action,
+                                                                    parent_window))
         apply_button.pack(pady=10)
 
-        or_label = tk.Label(parent_window, text="OR")
+        or_label = tk.Label(parent_window or self.root, text="OR")
         or_label.pack(pady=5)
 
-        auto_update_button = tk.Button(parent_window, text="Automatic update to latest",
+        auto_update_button = tk.Button(parent_window or self.root, text="Automatic update to latest",
                                        command=lambda: self.update_device(device_name, action, parent_window))
         auto_update_button.pack(pady=10)
 
@@ -203,46 +283,50 @@ class GUI:
             self.show_message(f"Device {device_name} not found.")
             return
 
-        server_name = self.server_entry.get()
-        username = simpledialog.askstring("Input", "Please enter your username:")
-        password = simpledialog.askstring("Input", "Please enter your password:", show='*')
-        ssh = self.connection_manager.ssh_connect(server_name, username, password)
+        ssh = self.connection_manager.ssh_connect(self.server_name, self.username, self.password)
+        if not ssh:
+            self.show_message(f"Failed to connect to {self.server_name}")
+            return
 
-        if ssh:
+        if action == "Install FW":
             self.show_progress_window()
-
-            if action == "Install FW":
-                threading.Thread(target=self.install_firmware, args=(device, version, ssh, parent_window)).start()
-            elif action == "Install BFB":
-                threading.Thread(target=self.install_bfb, args=(device, version, ssh, parent_window)).start()
-            elif action == "Install OFED":
-                threading.Thread(target=self.install_ofed, args=(device, version, ssh, parent_window)).start()
-            elif action == "Install DOCA":
-                threading.Thread(target=self.install_driver, args=(device, version, ssh, parent_window)).start()
+            threading.Thread(target=self.install_firmware, args=(device, version, ssh, parent_window)).start()
+        elif action == "Install OFED":
+            # Directly show OFED installation window, no need to create a separate thread
+            self.show_ofed_installation_window()
+        elif action == "Install BFB":
+            threading.Thread(target=self.install_bfb, args=(device, version, ssh, parent_window)).start()
+        elif action == "Install DOCA":
+            threading.Thread(target=self.install_driver, args=(device, version, ssh, parent_window)).start()
 
     def install_firmware(self, device, version, ssh, parent_window):
         output = self.firmware.install(device, version, ssh)
         self.show_message(output, text_flag=True)
         self.progress_window.destroy()
-        parent_window.destroy()
+        if parent_window:
+            parent_window.destroy()
         ssh.close()
 
     def install_bfb(self, device, version, ssh, parent_window):
         output = self.bfb.install(device, version, ssh)
-        self.show_message(output)
-        parent_window.destroy()
+        self.show_message(output, text_flag=True)
+        if parent_window:
+            parent_window.destroy()
         ssh.close()
 
-    def install_ofed(self, device, version, ssh, parent_window):
-        output = self.connection_manager.install_ofed(device, version, ssh)
-        self.show_message(output)
-        parent_window.destroy()
+    def install_ofed(self, version, ssh, parent_window):
+        output = self.ofed.install(version, ssh)
+        self.show_message(output, text_flag=True)
+        self.progress_window.destroy()
+        if parent_window:
+            parent_window.destroy()
         ssh.close()
 
     def install_driver(self, device, version, ssh, parent_window):
         output = self.connection_manager.install_driver(device, version, ssh)
         self.show_message(output)
-        parent_window.destroy()
+        if parent_window:
+            parent_window.destroy()
         ssh.close()
 
     def show_progress_window(self):
@@ -265,7 +349,8 @@ class GUI:
 
     def update_device(self, device_name, action, parent_window):
         self.show_message(f"Updating {device_name} to latest version for {action}")
-        parent_window.destroy()
+        if parent_window:
+            parent_window.destroy()
 
     def show_device_info(self, device):
         device_window = tk.Toplevel(self.root)
@@ -335,10 +420,6 @@ class GUI:
             text_widget.config(state=tk.DISABLED)
         else:
             messagebox.showinfo("Message", message)
-
-
-
-
 
     def close_application(self):
         self.root.destroy()

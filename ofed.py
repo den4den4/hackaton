@@ -8,7 +8,7 @@ class OFED:
         """
         self.connection_manager = connection_manager
 
-    def install(self, device, version, ssh):
+    def install(self, version, ssh):
         """
         Install OFED for the given device and version.
 
@@ -20,11 +20,9 @@ class OFED:
         Returns:
             str: The output of the installation command.
         """
-        first_pci = device.get('First_PCI', 'Unknown PCI')
-
         # Command to execute on the remote machine to install OFED
         command = (
-            f"ofedinstall --prefix /mswg/release/mlnx_ofed/mlnx_ofed-{version}/"
+            f"build=MLNX_OFED_LINUX-{version} /.autodirect/mswg/release/MLNX_OFED/mlnx_ofed_install --ovs-dpdk --bluefield --without-fw-update --add-kernel-support"
         )
 
         # Execute the command on the remote machine
